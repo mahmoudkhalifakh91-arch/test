@@ -11,7 +11,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet';
 
 // Utils
-import { stripFirestore, compressImage, getRoadDistance } from '../utils';
+import { stripFirestore, compressImage, getRoadDistance, getRouteGeometry } from '../utils';
 
 // Services
 import { db } from '../services/firebase';
@@ -21,7 +21,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // Icons
-// Added missing Send import below
 import { 
   MapPin, Bike, Check, 
   ChevronDown, ChevronRight, Star,
@@ -43,6 +42,22 @@ import ActivityView from './ActivityView';
 import WalletView from './WalletView';
 import ChatView from '../components/ChatView';
 import AIAssistant from '../config/AIAssistant';
+
+// --- Custom Icons ---
+const driverIcon = L.divIcon({
+  html: `<div class="bg-white p-2 rounded-full shadow-2xl border-4 border-emerald-500 animate-bounce text-xl flex items-center justify-center">🛵</div>`,
+  className: 'live-driver-icon',
+  iconSize: [40, 40],
+  iconAnchor: [20, 20]
+});
+
+const MapAutoFit: React.FC<{ points: [number, number][] }> = ({ points }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (points.length > 1) { map.fitBounds(L.latLngBounds(points), { padding: [50, 50] }); }
+  }, [points]);
+  return null;
+};
 
 // --- Sub Components ---
 
@@ -207,13 +222,14 @@ const RestaurantMenuView: React.FC<{
   const getDeliveryPrice = () => {
     if (!currentVillage) return 0;
     
-    const isSameVillage = restaurant.address === currentVillage.name;
-    const { sameVillagePrice, foodOutsidePricePerKm } = DEFAULT_PRICING;
+    // الحالة 1: داخل نفس القرية
+    if (restaurant.address === currentVillage.name) {
+      return DEFAULT_PRICING.sameVillagePrice;
+    }
 
-    if (isSameVillage) return sameVillagePrice;
-
-    // خارج القرية: المسافة × 3 جنيه
-    const calc = roadDist * (foodOutsidePricePerKm || 3);
+    // الحالة 2: خارج القرية (بناءً على مسافة الطرق)
+    const base = DEFAULT_PRICING.deliveryBasePrice;
+    const calc = base + (roadDist * DEFAULT_PRICING.foodOutsidePricePerKm);
     return Math.max(Math.round(calc), DEFAULT_PRICING.minPrice);
   };
 
@@ -222,7 +238,6 @@ const RestaurantMenuView: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[5000] bg-white flex flex-col animate-in slide-in-from-bottom duration-500 overflow-hidden" dir="rtl">
-       {/* Hero Section */}
        <div className="relative h-[28vh] shrink-0">
           <img src={restaurant.photoURL || 'https://images.unsplash.com/photo-1517248135467-4c7ed9d42339'} className="w-full h-full object-cover" alt={restaurant.name} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"></div>
@@ -240,10 +255,7 @@ const RestaurantMenuView: React.FC<{
           </div>
        </div>
 
-       {/* Menu Content */}
        <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 no-scrollbar bg-slate-50">
-          
-          {/* Location Picker */}
           <div className="space-y-4">
              <h3 className="text-xl font-black text-slate-800 pr-2 border-r-4 border-emerald-500">منطقة الاستلام (التوصيل)</h3>
              <LocationSelector 
@@ -256,7 +268,6 @@ const RestaurantMenuView: React.FC<{
              />
           </div>
 
-          {/* Paper Menu Button */}
           {restaurant.menuImageURL && (
             <button onClick={() => setShowFullMenuImage(true)} className="w-full bg-slate-900 p-6 rounded-[2.5rem] text-white flex justify-between items-center shadow-xl active:scale-95 transition-all group overflow-hidden relative">
                <div className="absolute inset-0 bg-emerald-500/10 group-hover:bg-emerald-500/20 transition-all"></div>
@@ -268,7 +279,6 @@ const RestaurantMenuView: React.FC<{
             </button>
           )}
 
-          {/* Special Requests */}
           <div className="space-y-4">
              <h3 className="text-xl font-black text-slate-800 pr-2 border-r-4 border-amber-500">طلب خاص أو صنف غير موجود</h3>
              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm relative overflow-hidden group">
@@ -286,7 +296,6 @@ const RestaurantMenuView: React.FC<{
              </div>
           </div>
 
-          {/* Digital Menu Items */}
           <div className="space-y-6 pb-20">
              <h3 className="text-xl font-black text-slate-800 pr-2 border-r-4 border-emerald-500">أصناف القائمة الرقمية</h3>
              <div className="grid gap-4">
@@ -322,7 +331,6 @@ const RestaurantMenuView: React.FC<{
           </div>
        </div>
 
-       {/* Floating Action Bar */}
        <div className="p-8 pb-10 bg-white/90 backdrop-blur-2xl border-t border-slate-100 shadow-2xl shrink-0">
           <div className="grid grid-cols-2 gap-4 mb-5">
              <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100 text-right">
@@ -330,7 +338,7 @@ const RestaurantMenuView: React.FC<{
                 <p className="text-xl font-black text-slate-900">{totalFoodItemsPrice} <span className="text-xs">ج.م</span></p>
              </div>
              <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100 text-right overflow-hidden relative">
-                <p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest truncate">التوصيل لـ {currentVillage?.name || '...'}</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase mb-1 tracking-widest truncate">توصيل لـ {currentVillage?.name || '...'}</p>
                 <p className="text-xl font-black text-emerald-600">
                    {isCalculating ? <Loader2 className="h-5 w-5 animate-spin inline ml-1" /> : `${deliveryPrice} ج.م`}
                 </p>
@@ -346,7 +354,6 @@ const RestaurantMenuView: React.FC<{
           </button>
        </div>
 
-       {/* Full Image Modal */}
        {showFullMenuImage && (
          <div className="fixed inset-0 z-[6000] bg-slate-950 flex flex-col animate-in zoom-in duration-300">
             <div className="flex justify-between items-center p-8 bg-black/20 backdrop-blur-md">
@@ -363,64 +370,8 @@ const RestaurantMenuView: React.FC<{
                  alt="Paper Menu" 
                />
             </div>
-            <div className="p-6 text-center text-white/40 text-[9px] font-bold uppercase tracking-[0.4em]">وصـــلــهــا • أصل الطعم</div>
          </div>
        )}
-    </div>
-  );
-};
-
-// --- Manual Restaurant Order Modal ---
-
-const ManualRestaurantView: React.FC<{
-  onClose: () => void,
-  onConfirm: (data: { name: string, items: string, village: Village }) => void
-}> = ({ onClose, onConfirm }) => {
-  const [restName, setRestName] = useState('');
-  const [items, setItems] = useState('');
-  const [district, setDistrict] = useState<District | null>(null);
-  const [village, setVillage] = useState<Village | null>(null);
-  
-  return (
-    <div className="fixed inset-0 z-[5000] bg-slate-50 flex flex-col animate-in slide-in-from-bottom duration-500 overflow-hidden" dir="rtl">
-       <div className="p-8 md:p-10 bg-slate-950 text-white flex justify-between items-center shrink-0 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-full bg-emerald-500/5 blur-3xl"></div>
-          <button onClick={onClose} className="p-4 bg-white/10 rounded-2xl active:scale-90 transition-all relative z-10"><ArrowRight className="h-6 w-6" /></button>
-          <div className="text-right relative z-10">
-             <h2 className="text-2xl font-black">طلب من مطعم خارجي</h2>
-             <p className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest mt-1">أي مطعم في دماغك هنوصلك منه</p>
-          </div>
-       </div>
-       <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 no-scrollbar">
-          <div className="space-y-4">
-             <h3 className="text-xl font-black text-slate-800 pr-2 border-r-4 border-emerald-500">بيانات المطعم والطلب</h3>
-             <div className="bg-white p-6 md:p-8 rounded-[3rem] shadow-sm border border-slate-100 space-y-6">
-                <input value={restName} onChange={e => setRestName(e.target.value)} placeholder="اسم المطعم (مثال: البرنس، كشري التحرير..)" className="w-full bg-slate-50 rounded-2xl p-6 text-sm font-black text-right outline-none focus:ring-4 focus:ring-emerald-500/5 border-none shadow-inner" />
-                <textarea value={items} onChange={e => setItems(e.target.value)} placeholder="اكتب طلباتك هنا بالتفصيل (الوجبات، الأعداد، ملاحظات..)" className="w-full bg-slate-50 rounded-2xl p-6 text-sm font-bold text-right outline-none focus:ring-4 focus:ring-emerald-500/5 border-none shadow-inner min-h-[140px]" />
-             </div>
-          </div>
-          <div className="space-y-4">
-             <h3 className="text-xl font-black text-slate-800 pr-2 border-r-4 border-rose-500">مكان التوصيل</h3>
-             <LocationSelector 
-                label="" helper="" 
-                icon={<CheckCircle2 />} iconBg="bg-rose-500" 
-                selectedDistrict={district} 
-                selectedVillage={village} 
-                onSelectDistrict={setDistrict} 
-                onSelectVillage={setVillage} 
-                minimal
-             />
-          </div>
-       </div>
-       <div className="p-8 md:p-10 bg-white shadow-2xl border-t border-slate-100">
-          <button 
-             onClick={() => village && onConfirm({ name: restName, items, village })}
-             disabled={!restName || !items || !village}
-             className="w-full bg-slate-950 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-4"
-          >
-             <Send className="h-6 w-6 text-emerald-400" /> إرسال الطلب الآن
-          </button>
-       </div>
     </div>
   );
 };
@@ -443,13 +394,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
   const [ads, setAds] = useState<Ad[]>([]);
   const [viewingAd, setViewingAd] = useState<Ad | null>(null);
   const [viewingRestaurant, setViewingRestaurant] = useState<Restaurant | null>(null);
-  const [showManualRest, setShowManualRest] = useState(false);
   
-  // Pharmacy States
-  const [pharmacyNote, setPharmacyNote] = useState('');
-  const [prescriptionImage, setPrescriptionImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleType>('MOTORCYCLE');
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [incomingOffers, setIncomingOffers] = useState<Offer[]>([]);
@@ -463,17 +408,18 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
   const [rating, setRating] = useState(5);
   const [feedback, setFeedback] = useState('');
-  const [isRatingSubmitting, setIsRatingSubmitting] = useState(false);
+
+  // Tracking
+  const [driverLoc, setDriverLoc] = useState<{lat: number, lng: number} | null>(null);
+  const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
 
   useEffect(() => {
     onSnapshot(query(collection(db, "restaurants"), orderBy("name", "asc")), (snap) => {
       setRestaurants(snap.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) })) as Restaurant[]);
     });
-
     onSnapshot(query(collection(db, "ads"), orderBy("displayOrder", "asc")), (snap) => {
       setAds(snap.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) })).filter(ad => ad.isActive) as Ad[]);
     });
-
     return onSnapshot(query(collection(db, "orders"), where("customerId", "==", user.id)), (snapshot) => {
       const all = snapshot.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) } as Order));
       setActiveOrder(all.find(o => ![OrderStatus.DELIVERED_RATED, OrderStatus.CANCELLED].includes(o.status)) || null);
@@ -486,7 +432,18 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         setIncomingOffers(snap.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) })) as Offer[]);
       });
     }
-  }, [activeOrder?.id, activeOrder?.status]);
+    if (activeOrder?.driverId && activeOrder.status !== OrderStatus.WAITING_FOR_OFFERS) {
+       const unsubDriver = onSnapshot(doc(db, "users", activeOrder.driverId), (docSnap) => {
+          if (docSnap.exists() && docSnap.data().location) {
+             const loc = docSnap.data().location;
+             setDriverLoc(loc);
+             const dest = activeOrder.status === OrderStatus.ACCEPTED ? activeOrder.pickup : activeOrder.dropoff;
+             getRouteGeometry(loc.lat, loc.lng, dest.lat, dest.lng).then(setRouteGeometry);
+          }
+       });
+       return () => unsubDriver();
+    }
+  }, [activeOrder?.id, activeOrder?.status, activeOrder?.driverId]);
 
   useEffect(() => {
     if (pickupVillage && dropoffVillage) {
@@ -501,15 +458,27 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
     }
   }, [pickupVillage, dropoffVillage]);
 
+  /**
+   * حساب السعر التقديري للمشوار بدقة
+   */
   const getEstimatedPrice = () => {
     if (!pickupVillage || !dropoffVillage) return 0;
-    if (pickupVillage.id === dropoffVillage.id) return DEFAULT_PRICING.sameVillagePrice;
-    const baseFare = DEFAULT_PRICING.basePrice + (actualRoadDist * DEFAULT_PRICING.pricePerKm);
-    const multiplier = DEFAULT_PRICING.multipliers[selectedVehicle] || 1;
-    return Math.round(Math.max(baseFare * multiplier, DEFAULT_PRICING.minPrice));
+    
+    // داخل نفس القرية
+    if (pickupVillage.id === dropoffVillage.id) {
+      const multi = DEFAULT_PRICING.multipliers[selectedVehicle] || 1;
+      return Math.round(DEFAULT_PRICING.sameVillagePrice * multi);
+    }
+    
+    // بين القرى (بناءً على مسافة الطرق)
+    const base = DEFAULT_PRICING.basePrice + (actualRoadDist * DEFAULT_PRICING.pricePerKm);
+    const multi = DEFAULT_PRICING.multipliers[selectedVehicle] || 1;
+    
+    const calculated = base * multi;
+    const minForVehicle = DEFAULT_PRICING.minPrice * multi;
+    
+    return Math.round(Math.max(calculated, minForVehicle));
   };
-
-  const estimatedPrice = getEstimatedPrice();
 
   const handleAcceptOffer = async (offer: Offer) => {
     if (!activeOrder) return;
@@ -518,7 +487,6 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         driverId: offer.driverId,
         driverName: offer.driverName,
         driverPhone: offer.driverPhone,
-        driverPhoto: offer.driverPhoto || null,
         status: OrderStatus.ACCEPTED,
         acceptedAt: Date.now(),
         price: offer.price 
@@ -531,7 +499,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
     if(!finalVillage) return alert('يرجى تحديد مكان التوصيل');
     setIsSubmitting(true);
     try {
-      const orderPrice = extraData.price || estimatedPrice;
+      const orderPrice = extraData.price || getEstimatedPrice();
       const orderData = {
         customerId: user.id, customerPhone: user.phone, category: selectedCategory,
         status: OrderStatus.WAITING_FOR_OFFERS, createdAt: Date.now(), paymentMethod: 'CASH',
@@ -541,33 +509,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         pickupNotes: pickupNote, dropoffNotes: dropoffNote, ...extraData
       };
       await addDoc(collection(db, "orders"), stripFirestore(orderData));
-      window.open(`https://wa.me/201065019364?text=${encodeURIComponent(`طلب جديد عبر وصلها\nالعميل: ${user.name}\nالمسار: ${orderData.pickup?.villageName || 'موقعي'} ← ${finalVillage.name}`)}`, '_blank');
     } catch (e) { alert('خطأ في إرسال الطلب'); } finally { setIsSubmitting(false); }
-  };
-
-  const handlePrescriptionUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const compressed = await compressImage(reader.result as string);
-      setPrescriptionImage(compressed);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRateTrip = async () => {
-    if (!activeOrder) return;
-    setIsRatingSubmitting(true);
-    try {
-      await updateDoc(doc(db, "orders", activeOrder.id), {
-        status: OrderStatus.DELIVERED_RATED,
-        rating: rating,
-        feedback: feedback.trim(),
-        ratedAt: Date.now()
-      });
-      setRating(5); setFeedback('');
-    } catch (e) { alert('خطأ في التقييم'); } finally { setIsRatingSubmitting(false); }
   };
 
   if (showChat && activeOrder) return <ChatView user={user} order={activeOrder} onBack={() => setShowChat(false)} />;
@@ -580,22 +522,6 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
       <AIAssistant isOpen={aiOpen} onClose={() => setAiOpen(false)} />
       {viewingAd && <AdDetailsView ad={viewingAd} onClose={() => setViewingAd(null)} />}
       
-      {showManualRest && (
-        <ManualRestaurantView 
-           onClose={() => setShowManualRest(false)} 
-           onConfirm={(data) => {
-              handleCreateOrder({
-                restaurantName: data.name,
-                specialRequest: data.items,
-                deliveryVillage: data.village,
-                price: 35, // سعر مبدأي تقديري
-                pickup: { address: data.name, lat: 30.2931, lng: 30.9863, villageName: 'خارجي' }
-              });
-              setShowManualRest(false);
-           }} 
-        />
-      )}
-
       {viewingRestaurant && (
         <RestaurantMenuView 
           restaurant={viewingRestaurant} 
@@ -619,13 +545,13 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
       )}
 
       <div className="page-container no-scrollbar h-full overflow-y-auto">
-        <div className="p-6 md:p-10 space-y-8 pb-32 max-w-2xl mx-auto">
+        <div className="p-6 md:p-10 space-y-8 pb-32 max-w-2xl mx-auto text-right">
           {!activeOrder ? (
             <>
               <div className="flex items-center justify-between">
                  <div className="text-right">
                     <h2 className="text-4xl font-black text-slate-900 tracking-tighter leading-none">وصـــلــهــا</h2>
-                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em] mt-2">توصيل ذكي حقيقي للمنوفية</p>
+                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em] mt-2">توصيل ذكي للمنوفية</p>
                  </div>
                  <button onClick={() => setAiOpen(true)} className="p-4 bg-emerald-50 text-emerald-600 rounded-3xl active:scale-90 transition-all shadow-sm border border-emerald-100"><Bot /></button>
               </div>
@@ -646,66 +572,13 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
               </div>
 
               <div className="space-y-6 animate-reveal">
-                {selectedCategory === 'PHARMACY' ? (
-                  <div className="space-y-6 animate-in zoom-in">
-                    <div className="bg-white p-8 rounded-[3rem] card-shadow space-y-8">
-                       <div className="flex items-center gap-4 flex-row-reverse text-right">
-                          <div className="bg-emerald-500 p-4 rounded-2xl text-white shadow-lg"><Stethoscope className="h-6 w-6" /></div>
-                          <div>
-                             <h4 className="text-xl font-black text-slate-800">طلب من الصيدلية</h4>
-                             <p className="text-[10px] font-bold text-slate-400 uppercase">ارفع الروشتة أو اكتب الأدوية</p>
-                          </div>
-                       </div>
-                       <div className="space-y-4">
-                          <textarea 
-                             value={pharmacyNote}
-                             onChange={e => setPharmacyNote(e.target.value)}
-                             placeholder="اكتب أسماء الأدوية المطلوبة هنا..."
-                             className="w-full bg-slate-50 rounded-2xl p-5 text-sm font-bold text-right outline-none min-h-[120px] focus:ring-2 focus:ring-emerald-500/10 border-none"
-                          />
-                          <div className="relative">
-                             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handlePrescriptionUpload} />
-                             {prescriptionImage ? (
-                               <div className="relative w-full aspect-video rounded-3xl overflow-hidden border-2 border-emerald-500">
-                                  <img src={prescriptionImage} className="w-full h-full object-cover" />
-                                  <button onClick={() => setPrescriptionImage(null)} className="absolute top-4 left-4 bg-slate-900/60 text-white p-2 rounded-xl"><X className="h-4 w-4" /></button>
-                               </div>
-                             ) : (
-                               <button 
-                                 onClick={() => fileInputRef.current?.click()}
-                                 className="w-full bg-slate-50 border-4 border-dashed border-slate-100 p-8 rounded-3xl flex flex-col items-center gap-2 text-slate-400 active:scale-95 transition-all"
-                               >
-                                  <ImageIcon className="h-10 w-10 opacity-30" />
-                                  <span className="font-black text-xs uppercase tracking-widest">إرفاق صورة الروشتة</span>
-                               </button>
-                             )}
-                          </div>
-                       </div>
-                    </div>
-                    <LocationSelector label="مكان التوصيل" helper="أين سيسلمك الكابتن العلاج؟" icon={<CheckCircle2 />} iconBg="bg-rose-500" selectedDistrict={dropoffDistrict} selectedVillage={dropoffVillage} onSelectDistrict={setDropoffDistrict} onSelectVillage={setDropoffVillage} addressNote={dropoffNote} onAddressChange={setDropoffNote} />
-                    <button onClick={() => handleCreateOrder({ specialRequest: pharmacyNote, prescriptionImage: prescriptionImage, pickup: { villageName: 'أقرب صيدلية', address: 'صيدلية', lat: 30.2931, lng: 30.9863 } })} disabled={isSubmitting || (!pharmacyNote && !prescriptionImage) || !dropoffVillage} className="w-full bg-slate-950 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl active:scale-95 transition-all">
-                       {isSubmitting ? <Loader2 className="animate-spin h-7 w-7 mx-auto" /> : 'اطلب العلاج الآن'}
-                    </button>
-                  </div>
-                ) : selectedCategory === 'FOOD' ? (
+                {selectedCategory === 'FOOD' ? (
                   <div className="grid gap-5">
-                    <div onClick={() => setShowManualRest(true)} className="bg-slate-900 p-6 rounded-[3rem] card-shadow flex flex-row-reverse justify-between items-center cursor-pointer active:scale-95 transition-all">
-                       <div className="flex items-center gap-4 flex-row-reverse text-right">
-                          <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-emerald-400">
-                             <ClipboardList className="h-7 w-7" />
-                          </div>
-                          <div>
-                             <h4 className="text-lg font-black text-white leading-tight">المطعم مش موجود؟</h4>
-                             <p className="text-[10px] font-bold text-emerald-400/80">اطلب يدوي من أي مطعم في بالك</p>
-                          </div>
-                       </div>
-                       <PlusCircle className="h-6 w-6 text-white/20" />
-                    </div>
                     {restaurants.map(rest => (
                       <div key={rest.id} onClick={() => setViewingRestaurant(rest)} className="bg-white p-5 rounded-[3rem] card-shadow flex flex-row-reverse justify-between items-center cursor-pointer hover:border-emerald-500 border-2 border-transparent transition-all active:scale-95">
                          <div className="flex items-center gap-4 flex-row-reverse text-right">
                             <div className="w-16 h-16 bg-slate-900 rounded-[1.8rem] overflow-hidden shadow-lg border border-white/10">
-                               {rest.photoURL ? <img src={rest.photoURL} className="w-full h-full object-cover" /> : <UtensilsCrossed className="p-5 text-emerald-400" />}
+                               {rest.photoURL ? <img src={rest.photoURL} className="w-full h-full object-cover" /> : <Utensils className="p-5 text-emerald-400" />}
                             </div>
                             <div><h4 className="text-lg font-black text-slate-800 leading-tight">{rest.name}</h4><p className="text-[10px] font-bold text-slate-400">{rest.category}</p></div>
                          </div>
@@ -719,85 +592,67 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                     <LocationSelector label="مكان التوصيل" helper="أين ستستلم طلبك؟" icon={<CheckCircle2 />} iconBg="bg-rose-500" selectedDistrict={dropoffDistrict} selectedVillage={dropoffVillage} onSelectDistrict={setDropoffDistrict} onSelectVillage={setDropoffVillage} addressNote={dropoffNote} onAddressChange={setDropoffNote} />
                     <div className="grid grid-cols-3 gap-3">
                        {[{ id: 'TOKTOK', label: 'توكتوك', icon: <Zap className="h-4 w-4" /> }, { id: 'MOTORCYCLE', label: 'موتوسيكل', icon: <Bike className="h-4 w-4" /> }, { id: 'CAR', label: 'سيارة', icon: <Car className="h-4 w-4" /> }].map(v => (
-                         <button key={v.id} onClick={() => setSelectedVehicle(v.id as VehicleType)} className={`py-5 rounded-3xl flex flex-col items-center gap-2 border-2 transition-all font-black text-[10px] uppercase tracking-widest ${selectedVehicle === v.id ? 'bg-emerald-500 border-emerald-500 text-white shadow-xl scale-105' : 'bg-white border-slate-100 text-slate-400'}`}>
+                         <button key={v.id} onClick={() => setSelectedVehicle(v.id as VehicleType)} className={`py-5 rounded-3xl flex flex-col items-center gap-2 border-2 transition-all font-black text-[10px] uppercase tracking-widest ${selectedVehicle === v.id ? 'bg-emerald-50 border-emerald-500 text-white shadow-xl scale-105' : 'bg-white border-slate-100 text-slate-400'}`}>
                            {v.icon} {v.label}
                          </button>
                        ))}
                     </div>
                     {(pickupVillage && dropoffVillage) && (
-                      <div className="bg-white p-8 rounded-[3.5rem] border-4 border-emerald-50 shadow-2xl space-y-6 animate-reveal overflow-hidden relative">
+                      <div className="bg-white p-8 rounded-[3.5rem] border-4 border-emerald-50 shadow-2xl space-y-6 animate-reveal">
                         <div className="flex justify-between items-center relative z-10">
                            <div className="text-right">
                               <h4 className="text-xl font-black text-slate-800 flex items-center gap-2 flex-row-reverse"><Calculator className="h-5 w-5 text-emerald-600" /> التكلفة التقريبية</h4>
-                              <p className="text-[10px] font-bold text-slate-400 mt-1">بناءً على المسافة ونوع المركبة</p>
+                              <p className="text-[10px] font-bold text-slate-400 mt-1">بناءً على مسافة الطرق الفعلية {actualRoadDist > 0 && `(${actualRoadDist} كم)`}</p>
                            </div>
-                           <div className="bg-emerald-600 text-white px-8 py-4 rounded-[2rem] shadow-xl"><p className="text-3xl font-black">{isCalculatingDist ? '...' : estimatedPrice} <span className="text-xs opacity-60">ج.م</span></p></div>
+                           <div className="bg-emerald-600 text-white px-8 py-4 rounded-[2rem] shadow-xl">
+                              <p className="text-3xl font-black">{isCalculatingDist ? '...' : getEstimatedPrice()} <span className="text-xs opacity-60">ج.م</span></p>
+                           </div>
                         </div>
                       </div>
                     )}
                     <button onClick={() => handleCreateOrder()} disabled={isSubmitting || !dropoffVillage || (selectedCategory === 'TAXI' && !pickupVillage) || isCalculatingDist} className="w-full bg-slate-950 text-white py-7 rounded-[2.5rem] font-black text-xl shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-4">
-                       {isSubmitting ? <Loader2 className="animate-spin h-7 w-7" /> : <><Sparkles className="h-6 w-6 text-emerald-400" /> اطلب مشوارك الآن</>}
+                       {isSubmitting ? <Loader2 className="animate-spin h-7 w-7" /> : 'اطلب مشوارك الآن'}
                     </button>
                   </>
                 )}
               </div>
             </>
           ) : (
-            <div className="space-y-12 py-10">
+            <div className="space-y-12">
                {activeOrder.status === OrderStatus.WAITING_FOR_OFFERS ? (
                  <div className="text-center space-y-8 animate-reveal">
-                    <div className="bg-white p-12 rounded-full card-shadow relative inline-block border-4 border-emerald-50 shadow-2xl shadow-emerald-900/10"><Radar className="h-20 w-20 text-emerald-600 animate-pulse" /></div>
-                    <div className="space-y-2">
-                       <h2 className="text-3xl font-black text-slate-900 tracking-tighter">جاري البحث عن كباتن متاحين...</h2>
-                       <p className="text-xs font-bold text-slate-400">ستظهر العروض في الأسفل خلال لحظات</p>
-                    </div>
+                    <div className="bg-white p-12 rounded-full card-shadow relative inline-block border-4 border-emerald-50 shadow-2xl"><Radar className="h-20 w-20 text-emerald-600 animate-pulse" /></div>
+                    <h2 className="text-3xl font-black text-slate-900 tracking-tighter">جاري البحث عن كباتن...</h2>
                     <div className="space-y-4">
                        {incomingOffers.map(offer => (
-                         <div key={offer.id} className="bg-white p-6 rounded-[2.5rem] card-shadow flex justify-between items-center animate-in zoom-in border-2 border-emerald-50 hover:border-emerald-500 transition-all">
-                            <button onClick={() => handleAcceptOffer(offer)} className="bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all">قبول {offer.price} ج.م</button>
+                         <div key={offer.id} className="bg-white p-6 rounded-[2.5rem] card-shadow flex justify-between items-center animate-in zoom-in border-2 border-emerald-50">
+                            <button onClick={() => handleAcceptOffer(offer)} className="bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg">قبول {offer.price} ج.م</button>
                             <div className="text-right">
                                <p className="font-black text-slate-900">{offer.driverName}</p>
-                               <div className="flex items-center gap-1 justify-end"><span className="text-[10px] font-black text-amber-500">{offer.driverRating || '5.0'}</span><Star className="h-3 w-3 fill-amber-400 text-amber-400" /></div>
+                               <div className="flex items-center gap-1 justify-end"><span className="text-[10px] font-black text-amber-500">{offer.driverRating || '5.0'}</span><Star className="h-3 w-3 fill-amber-400" /></div>
                             </div>
                          </div>
                        ))}
                     </div>
-                    <button onClick={() => updateDoc(doc(db, "orders", activeOrder.id), { status: OrderStatus.CANCELLED })} className="text-rose-500 font-black text-xs uppercase hover:underline tracking-widest mt-8">إلغاء الطلب</button>
-                 </div>
-               ) : activeOrder.status === OrderStatus.DELIVERED ? (
-                 <div className="animate-reveal space-y-8 text-center bg-white p-10 rounded-[4rem] shadow-2xl border-4 border-emerald-500/10">
-                    <PartyPopper className="h-24 w-24 text-emerald-500 mx-auto animate-bounce" />
-                    <h2 className="text-4xl font-black text-slate-950 tracking-tighter">وصلت بالسلامة!</h2>
-                    <p className="text-slate-400 font-bold">يرجى تقييم تجربة التوصيل مع الكابتن {activeOrder.driverName}</p>
-                    <div className="bg-slate-50 p-8 rounded-[3rem] space-y-10">
-                       <div className="flex justify-center gap-3">
-                          {[1,2,3,4,5].map(s => (
-                             <button key={s} onClick={() => setRating(s)} className="transition-all active:scale-75">
-                                <Star className={`h-12 w-12 ${rating >= s ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                             </button>
-                          ))}
-                       </div>
-                       <textarea value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="هل لديك أي ملاحظات أخرى على الرحلة؟ (اختياري)" className="w-full bg-white border-none rounded-[2rem] p-6 font-bold text-sm outline-none text-right shadow-inner min-h-[120px]" />
-                    </div>
-                    <button onClick={handleRateTrip} disabled={isRatingSubmitting} className="w-full bg-[#10b981] text-white py-8 rounded-[3rem] font-black text-2xl shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-4">
-                       {isRatingSubmitting ? <Loader2 className="h-8 w-8 animate-spin" /> : <><ThumbsUp /> تأكيد وإرسال التقييم</>}
-                    </button>
                  </div>
                ) : (
                  <div className="space-y-8 animate-reveal">
+                    <div className="h-80 rounded-[3.5rem] overflow-hidden border-4 border-white shadow-2xl relative">
+                        <MapContainer center={[activeOrder.pickup.lat, activeOrder.pickup.lng]} zoom={15} zoomControl={false} className="h-full w-full">
+                          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                          {driverLoc && <Marker position={[driverLoc.lat, driverLoc.lng]} icon={driverIcon} />}
+                          <Marker position={[activeOrder.pickup.lat, activeOrder.pickup.lng]} />
+                          {routeGeometry.length > 0 && <Polyline positions={routeGeometry} color="#10b981" weight={6} opacity={0.6} />}
+                          <MapAutoFit points={[...(driverLoc ? [[driverLoc.lat, driverLoc.lng] as [number, number]] : []), [activeOrder.pickup.lat, activeOrder.pickup.lng]]} />
+                        </MapContainer>
+                    </div>
                     <div className="bg-emerald-600 p-8 rounded-[3rem] text-white flex justify-between items-center shadow-xl">
                        <div className="text-right"><p className="text-xs font-black opacity-60 uppercase mb-1">تتبع الرحلة</p><h3 className="text-2xl font-black">{activeOrder.status}</h3></div>
                        <div className="bg-white/20 p-4 rounded-2xl"><Navigation className="h-8 w-8 animate-bounce" /></div>
                     </div>
-                    <div className="flex flex-col items-center gap-6">
-                       <div className="w-32 h-32 bg-white rounded-[3rem] shadow-2xl border-8 border-slate-100 flex items-center justify-center overflow-hidden relative">
-                          {activeOrder.driverPhoto ? <img src={activeOrder.driverPhoto} className="w-full h-full object-cover" /> : (activeOrder.driverName || 'ك')[0]}
-                       </div>
-                       <div className="text-center"><h4 className="text-3xl font-black text-slate-950 tracking-tight">{activeOrder.driverName}</h4><p className="text-xs font-bold text-emerald-600 bg-emerald-50 px-6 py-2 rounded-full inline-block mt-2">كابتن معتمد</p></div>
-                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                       <a href={`tel:${activeOrder.driverPhone}`} className="bg-slate-950 text-white py-6 rounded-3xl font-black flex items-center justify-center gap-3 shadow-xl active:scale-95"><PhoneCall className="h-6 w-6" /> اتصال</a>
-                       <button onClick={() => setShowChat(true)} className="bg-white border-2 border-slate-100 text-slate-900 py-6 rounded-3xl font-black flex items-center justify-center gap-3 active:scale-95 shadow-sm"><MessageCircle className="h-6 w-6" /> دردشة</button>
+                       <a href={`tel:${activeOrder.driverPhone}`} className="bg-slate-950 text-white py-6 rounded-3xl font-black flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"><PhoneCall className="h-6 w-6" /> اتصال</a>
+                       <button onClick={() => setShowChat(true)} className="bg-white border-2 border-slate-100 text-slate-900 py-6 rounded-3xl font-black flex items-center justify-center gap-3 active:scale-95 shadow-sm transition-all"><MessageCircle className="h-6 w-6" /> دردشة</button>
                     </div>
                  </div>
                )}
@@ -808,7 +663,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-2xl border-t border-slate-100 px-6 py-6 flex justify-around items-center z-[150] shadow-2xl flex-row-reverse rounded-t-[3.5rem]">
          {[{id: 'NEW', icon: <Home className="h-6 w-6" />, label: 'الرئيسية'}, {id: 'ACTIVITY', icon: <History className="h-6 w-6" />, label: 'نشاطي'}, {id: 'PROFILE', icon: <UserIcon className="h-6 w-6" />, label: 'حسابي'}].map(tab => (
-           <button key={tab.id} onClick={() => setActiveView(tab.id as any)} className={`flex flex-col items-center gap-1.5 transition-all border-none bg-transparent ${activeView === tab.id ? 'text-[#2D9469]' : 'text-slate-300'}`}><div className={`p-3.5 rounded-2xl transition-all ${activeView === tab.id ? 'bg-[#EBFDF5] shadow-inner scale-110' : ''}`}>{tab.icon}</div><span className="text-[9px] font-black uppercase tracking-widest">{tab.label}</span></button>
+           <button key={tab.id} onClick={() => setActiveView(tab.id as any)} className={`flex flex-col items-center gap-1 transition-all ${activeView === tab.id ? 'text-[#2D9469] scale-110' : 'text-slate-300 hover:text-slate-400'}`}><div className={`p-3.5 rounded-2xl transition-all ${activeView === tab.id ? 'bg-[#EBFDF5]' : ''}`}>{tab.icon}</div><span className="text-[9px] font-black uppercase tracking-widest">{tab.label}</span></button>
          ))}
       </nav>
     </div>

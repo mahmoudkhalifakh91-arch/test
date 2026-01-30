@@ -5,14 +5,14 @@ export const PLATFORM_COMMISSION_RATE = 0.15;
 
 /**
  * القائمة الشاملة والنهائية لقرى وعزب مركز أشمون (المنوفية)
- * تم تجميعها بناءً على الوحدات المحلية لضمان التغطية الجغرافية الكاملة
+ * تم تحديث الإحداثيات بناءً على طلب المستخدم لضمان دقة المسافات الفعلية
  */
 export const ASHMOUN_VILLAGES: Village[] = [
   // مدينة أشمون
-  { id: 'ash-city', name: 'أشمون (المدينة)', center: { lat: 30.2986, lng: 30.9753 } },
+  { id: 'ash-city', name: 'أشمون (المدينة)', center: { lat: 30.2931, lng: 30.9863 } },
   
-  // وحدة شما
-  { id: 'v-shamma', name: 'شما', center: { lat: 30.3122, lng: 30.9658 } },
+  // وحدة شما (على بعد 13كم من مدينة أشمون)
+  { id: 'v-shamma', name: 'شما', center: { lat: 30.3340, lng: 31.1131 } },
   { id: 'v-khadra', name: 'الخضرة', center: { lat: 30.3200, lng: 30.9700 } },
   
   // وحدة سمادون
@@ -26,9 +26,10 @@ export const ASHMOUN_VILLAGES: Village[] = [
   { id: 'v-kohafa', name: 'كفر قورص', center: { lat: 30.3100, lng: 30.9450 } },
   { id: 'v-qours', name: 'قورص', center: { lat: 30.3150, lng: 30.9500 } },
   
-  // وحدة طهواي
-  { id: 'v-tahway', name: 'طهواي', center: { lat: 30.3089, lng: 30.9322 } },
-  { id: 'v-dalhamou', name: 'دلهمو', center: { lat: 30.3150, lng: 30.9250 } },
+  // وحدة طهواي (على بعد 7.1كم من شما)
+  { id: 'v-tahway', name: 'طهواي', center: { lat: 30.3340, lng: 31.0392 } },
+  // دلهمو (تقع بعد طهواي، وعلى بعد 9.3كم من شما)
+  { id: 'v-dalhamou', name: 'دلهمو', center: { lat: 30.3340, lng: 31.0163 } },
   { id: 'v-ezbet-tahway', name: 'عزبة طهواي', center: { lat: 30.3050, lng: 30.9250 } },
   
   // وحدة ساقية أبو شعرة
@@ -85,18 +86,18 @@ export const ASHMOUN_ZONES: Zone[] = [
     name: 'منظومة مشوار أشمون',
     operatorId: 'op_ashmoun_main',
     pricing: { 
-      basePrice: 12, 
-      pricePerKm: 6, 
-      minPrice: 20, 
-      maxPrice: 400,
+      basePrice: 10, 
+      pricePerKm: 7, 
+      minPrice: 15, 
+      maxPrice: 1000,
       sameVillagePrice: 15,
       multipliers: {
-        MOTORCYCLE: 0.85,
+        MOTORCYCLE: 0.9,
         TOKTOK: 1.0,
-        CAR: 1.75
+        CAR: 2.0
       }
     },
-    center: { lat: 30.2986, lng: 30.9753 }
+    center: { lat: 30.2931, lng: 30.9863 }
   }
 ];
 
@@ -108,10 +109,10 @@ export const STORAGE_KEYS = {
 };
 
 export const DEFAULT_PRICING = ASHMOUN_ZONES[0]?.pricing || {
-  basePrice: 12,
-  pricePerKm: 6,
-  minPrice: 20,
-  maxPrice: 400,
+  basePrice: 10,
+  pricePerKm: 7,
+  minPrice: 15,
+  maxPrice: 1000,
   sameVillagePrice: 15,
-  multipliers: { MOTORCYCLE: 0.85, TOKTOK: 1.0, CAR: 1.75 }
+  multipliers: { MOTORCYCLE: 0.9, TOKTOK: 1.0, CAR: 2.0 }
 };

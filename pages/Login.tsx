@@ -70,7 +70,7 @@ const Onboarding: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
 const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [isCompletingProfile, setIsCompletingProfile] = useState(false); // شاشة إكمال البيانات لجوجل
+  const [isCompletingProfile, setIsCompletingProfile] = useState(false);
   const [step, setStep] = useState<'INPUT' | 'OTP'>('INPUT');
   const [role, setRole] = useState<'CUSTOMER' | 'DRIVER'>('CUSTOMER');
   const [vehicleType, setVehicleType] = useState<VehicleType>('TOKTOK');
@@ -98,7 +98,9 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
   // General States
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [googleUser, setGoogleUser] = useState<any>(null);
+  
+  // الاحتفاظ فقط بالبيانات الضرورية لمستخدم جوجل لتجنب Circular References
+  const [googleUserData, setGoogleUserData] = useState<{uid: string, email: string, displayName: string} | null>(null);
 
   const centers = ["شبين الكوم", "منوف", "أشمون", "الباجور", "قويسنا", "بركة السبع", "تلا", "السادات", "الشهداء"];
 
@@ -147,8 +149,11 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
       if (userSnap.exists()) {
         const userData = stripFirestore(userSnap.data()) as User;
         if (!userData.phone) {
-          // مستخدم مسجل بجوجل سابقاً لكن لم يكمل بيانات الهاتف
-          setGoogleUser(result.user);
+          setGoogleUserData({
+            uid: result.user.uid,
+            email: result.user.email || '',
+            displayName: result.user.displayName || ''
+          });
           setName(userData.name || result.user.displayName || '');
           setEmail(userData.email || result.user.email || '');
           setIsCompletingProfile(true);
@@ -156,8 +161,11 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
           onLogin(userData);
         }
       } else {
-        // مستخدم جديد تماماً عبر جوجل
-        setGoogleUser(result.user);
+        setGoogleUserData({
+          uid: result.user.uid,
+          email: result.user.email || '',
+          displayName: result.user.displayName || ''
+        });
         setName(result.user.displayName || '');
         setEmail(result.user.email || '');
         setIsCompletingProfile(true);
@@ -171,13 +179,14 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
 
   const handleCompleteGoogleProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!googleUserData) return;
     if (!phone || phone.length < 11) return setErrorMsg("يرجى إدخال رقم هاتف صحيح");
     if (!center || !village) return setErrorMsg("يرجى اختيار المركز والقرية");
 
     setLoading(true);
     try {
       const userData: User = {
-        id: googleUser.uid,
+        id: googleUserData.uid,
         email: email,
         name: name,
         phone: phone,
@@ -187,7 +196,8 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
         zoneId: center,
         wallet: { balance: 0, totalEarnings: 0, withdrawn: 0 }
       };
-      await setDoc(doc(db, "users", googleUser.uid), stripFirestore(userData));
+      // نستخدم stripFirestore للتأكد من نظافة الكائن تماماً
+      await setDoc(doc(db, "users", googleUserData.uid), stripFirestore(userData));
       onLogin(userData);
     } catch (e) {
       setErrorMsg("حدث خطأ أثناء حفظ البيانات");
