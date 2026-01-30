@@ -16,16 +16,16 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
   if (typeof data.toMillis === 'function') return data.toMillis();
   if (typeof data.toDate === 'function') return data.toDate().getTime();
 
-  // 4. معالجة مراجع المستندات (DocumentReference)
-  // نعتمد على وجود الخصائص المميزة بدلاً من اسم الكلاس (بسبب الـ minification)
-  if (data.path && typeof data.path === 'string' && data.id) {
+  // 4. معالجة مراجع المستندات (DocumentReference) أو الاستعلامات (Query)
+  // نتحقق من وجود خصائص تميزها بدلاً من الاعتماد على اسم الكلاس (بسبب الـ minification)
+  if (data.id && data.path && typeof data.path === 'string') {
     return data.path;
   }
 
-  // 5. منع معالجة العناصر الضخمة أو الخاصة بالمتصفح
-  if (data.nodeType || data === window || data === document) return undefined;
+  // 5. اكتشاف عناصر الـ DOM أو كائنات المكتبات الضخمة (مثل الخرائط)
+  if (data.nodeType || data.target || data.srcElement) return undefined;
 
-  // إضافة الكائن لمجموعة الكائنات التي تمت رؤيتها لمنع التكرار الدائري
+  // إضافة الكائن لمجموعة الكائنات التي تمت رؤيتها
   seen.add(data);
 
   // 6. معالجة المصفوفات
@@ -35,13 +35,21 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
       .filter((val) => val !== undefined);
   }
 
-  // 7. تطهير خصائص الكائن
-  const stripped: any = {};
-  let hasProperties = false;
+  // 7. التحقق مما إذا كان كائناً بسيطاً (Plain Object)
+  // الكائنات المعقدة (Class Instances) يتم تحويلها لنص أو تجاهلها
+  const toStringTag = Object.prototype.toString.call(data);
+  if (toStringTag !== '[object Object]') {
+    if (typeof data.toString === 'function' && data.toString() !== '[object Object]') {
+      return data.toString();
+    }
+    return undefined;
+  }
 
+  // 8. تطهير خصائص الكائن
+  const stripped: any = {};
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
-      // تخطي الخصائص الداخلية لـ Firebase أو React
+      // تخطي الخصائص الداخلية أو الخاصة ببعض المكتبات
       if (key.startsWith('_') || key.startsWith('$')) continue;
       
       const value = data[key];
@@ -50,13 +58,11 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
       const cleanedValue = stripFirestore(value, seen);
       if (cleanedValue !== undefined) {
         stripped[key] = cleanedValue;
-        hasProperties = true;
       }
     }
   }
 
-  // إذا كان الكائن ليس مصفوفة وليس له خصائص (كائن فئة فارغ مثلاً)، نرجع undefined
-  return hasProperties ? stripped : (Object.keys(data).length === 0 ? {} : undefined);
+  return stripped;
 };
 
 /**
@@ -65,15 +71,14 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
 export const getRouteGeometry = async (lat1: number, lon1: number, lat2: number, lon2: number): Promise<[number, number][]> => {
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) throw new Error('Network error');
+    const response = await fetch(url);
     const data = await response.json();
     if (data.code === 'Ok' && data.routes?.length > 0) {
       return data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
     }
     return [[lat1, lon1], [lat2, lon2]];
   } catch (error) {
-    // فشل الجلب صامت هنا لأننا نستخدم الـ Fallback مباشرة
+    console.error("Routing Error:", error);
     return [[lat1, lon1], [lat2, lon2]];
   }
 };
@@ -85,8 +90,7 @@ export const getRoadDistance = async (lat1: number, lon1: number, lat2: number, 
   if (!lat1 || !lon1 || !lat2 || !lon2) return { distance: 0, duration: 0 };
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) throw new Error('Network error');
+    const response = await fetch(url);
     const data = await response.json();
     if (data.code === 'Ok' && data.routes?.length > 0) {
       return {

@@ -10,21 +10,27 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
   if (typeof data.toMillis === 'function') return data.toMillis();
   if (typeof data.toDate === 'function') return data.toDate().getTime();
   
-  if (data.path && typeof data.path === 'string' && data.id) {
-    return data.path;
+  if (data.id && data.path && typeof data.path === 'string') {
+    if (data.constructor.name.includes('DocumentReference') || data.firestore || data._delegate) {
+      return data.path;
+    }
   }
 
-  if (data.nodeType || data === window || data === document) return undefined;
+  const isArray = Array.isArray(data);
+  const proto = Object.getPrototypeOf(data);
+  const isPlainObject = proto === null || proto === Object.prototype || data.constructor?.name === 'Object';
+  
+  if (!isArray && !isPlainObject) {
+    return undefined;
+  }
 
   seen.add(data);
 
-  if (Array.isArray(data)) {
+  if (isArray) {
     return data.map(item => stripFirestore(item, seen)).filter(val => val !== undefined);
   }
 
   const stripped: any = {};
-  let hasProperties = false;
-  
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
       if (key.startsWith('_') || key.startsWith('$')) continue;
@@ -32,11 +38,10 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
       const cleaned = stripFirestore(data[key], seen);
       if (cleaned !== undefined) {
         stripped[key] = cleaned;
-        hasProperties = true;
       }
     }
   }
-  return hasProperties ? stripped : (Object.keys(data).length === 0 ? {} : undefined);
+  return stripped;
 };
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
