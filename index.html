@@ -19,11 +19,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
     
-    <!-- 
-      Google Maps API 
-      هام جداً: استبدل YOUR_API_KEY بمفتاحك الحقيقي من Google Cloud Console ليعمل التتبع.
-    -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places,geometry"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
       :root {
@@ -35,7 +31,7 @@
         font-family: 'Cairo', sans-serif;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
-        overflow: hidden;
+        overflow-x: hidden;
         background-color: #f8fafc;
         padding-top: var(--safe-area-inset-top);
         padding-bottom: var(--safe-area-inset-bottom);
@@ -43,15 +39,30 @@
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       
-      #google-map {
+      .leaflet-container {
         width: 100%;
         height: 100%;
+        z-index: 10;
         background: #f1f5f9;
       }
       
       button:active { transform: scale(0.94); transition: transform 0.1s; }
       .app-shadow { box-shadow: 0 25px 50px -12px rgba(45,148,105,0.2); }
       
+      @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+      }
+      .animate-float { animation: float 3s ease-in-out infinite; }
+
+      @keyframes glow {
+        0% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
+        50% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.6); }
+        100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
+      }
+      .animate-glow { animation: glow 2s ease-in-out infinite; }
+
       @keyframes slide-up-reveal {
         from { opacity: 0; transform: translateY(30px) scale(0.95); }
         to { opacity: 1; transform: translateY(0) scale(1); }
@@ -70,6 +81,8 @@
         "react-router-dom": "https://esm.sh/react-router-dom@6.11.2?external=react,react-dom",
         "lucide-react": "https://esm.sh/lucide-react@0.244.0?external=react",
         "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+        "leaflet": "https://esm.sh/leaflet@1.9.4",
+        "react-leaflet": "https://esm.sh/react-leaflet@4.2.1?external=react,react-dom,leaflet",
         "@google/genai": "https://esm.sh/@google/genai@1.34.0",
         "path": "https://esm.sh/path@^0.12.7",
         "vite": "https://esm.sh/vite@^7.3.0",
@@ -79,6 +92,7 @@
       }
     }
     </script>
+    <link rel="stylesheet" href="./styles/index.css">
 <link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-[#f8fafc] text-slate-900">

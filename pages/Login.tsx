@@ -102,7 +102,8 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
   // الاحتفاظ فقط بالبيانات الضرورية لمستخدم جوجل لتجنب Circular References
   const [googleUserData, setGoogleUserData] = useState<{uid: string, email: string, displayName: string} | null>(null);
 
-  const centers = ["شبين الكوم", "منوف", "أشمون", "الباجور", "قويسنا", "بركة السبع", "تلا", "السادات", "الشهداء"];
+  // تم تحديث القائمة لتشمل كافة مراكز المحافظة
+  const centers = ["شبين الكوم", "منوف", "أشمون", "الباجور", "قويسنا", "بركة السبع", "تلا", "السادات", "الشهداء", "سرس الليان"];
 
   const handleForgotPassword = () => {
     const adminWhatsApp = "201065019364";
@@ -421,7 +422,7 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
                     
                     <div className="relative">
                       <Lock className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-300 h-5 w-5" />
-                      <input type={showPassword ? "text" : "password"} placeholder="كلمة المرور" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required className="w-full bg-slate-50 rounded-[1.5rem] py-6 pr-14 pl-12 font-bold outline-none text-sm text-left border-2 border-transparent focus:border-[#2D9469] transition-all" dir="ltr" />
+                      <input type={showPassword ? "text" : "password"} placeholder="كلمة المرور" value={loginPassword} onChange={setLoginPassword(e.target.value)} required className="w-full bg-slate-50 rounded-[1.5rem] py-6 pr-14 pl-12 font-bold outline-none text-sm text-left border-2 border-transparent focus:border-[#2D9469] transition-all" dir="ltr" />
                       <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300">{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button>
                     </div>
 

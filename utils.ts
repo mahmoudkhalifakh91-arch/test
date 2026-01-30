@@ -1,94 +1,108 @@
 
-/* Fix: Define google variable to resolve type errors for external script */
-declare var google: any;
-
 /**
  * وظيفة متقدمة لتطهير البيانات من أي مراجع دائرية أو كائنات معقدة غير قابلة للتسلسل.
+ * تم تحسينها للتعامل مع الأسماء المستعارة (Minified names) وضمان تحويل مراجع Firestore للـ Path الخاص بها.
  */
 export const stripFirestore = (data: any, seen = new WeakSet()): any => {
+  // 1. التعامل مع القيم البسيطة
   if (data === null || data === undefined) return data;
   const type = typeof data;
   if (type !== 'object') return data;
+
+  // 2. منع المراجع الدائرية
   if (seen.has(data)) return undefined;
+
+  // 3. معالجة التواريخ والطوابع الزمنية لـ Firebase
   if (typeof data.toMillis === 'function') return data.toMillis();
   if (typeof data.toDate === 'function') return data.toDate().getTime();
-  if (data.path && typeof data.path === 'string' && (data.firestore || data._delegate)) return data.path;
-  seen.add(data);
-  if (Array.isArray(data)) {
-    return data.map((item) => stripFirestore(item, seen)).filter((val) => val !== undefined);
+
+  // 4. معالجة مراجع المستندات (DocumentReference) أو الاستعلامات (Query)
+  // نتحقق من وجود خصائص تميزها بدلاً من الاعتماد على اسم الكلاس (بسبب الـ minification)
+  if (data.id && data.path && typeof data.path === 'string') {
+    return data.path;
   }
+
+  // 5. اكتشاف عناصر الـ DOM أو كائنات المكتبات الضخمة (مثل الخرائط)
+  if (data.nodeType || data.target || data.srcElement) return undefined;
+
+  // إضافة الكائن لمجموعة الكائنات التي تمت رؤيتها
+  seen.add(data);
+
+  // 6. معالجة المصفوفات
+  if (Array.isArray(data)) {
+    return data
+      .map((item) => stripFirestore(item, seen))
+      .filter((val) => val !== undefined);
+  }
+
+  // 7. التحقق مما إذا كان كائناً بسيطاً (Plain Object)
+  // الكائنات المعقدة (Class Instances) يتم تحويلها لنص أو تجاهلها
+  const toStringTag = Object.prototype.toString.call(data);
+  if (toStringTag !== '[object Object]') {
+    if (typeof data.toString === 'function' && data.toString() !== '[object Object]') {
+      return data.toString();
+    }
+    return undefined;
+  }
+
+  // 8. تطهير خصائص الكائن
   const stripped: any = {};
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
+      // تخطي الخصائص الداخلية أو الخاصة ببعض المكتبات
       if (key.startsWith('_') || key.startsWith('$')) continue;
+      
       const value = data[key];
       if (typeof value === 'function') continue;
+
       const cleanedValue = stripFirestore(value, seen);
-      if (cleanedValue !== undefined) stripped[key] = cleanedValue;
+      if (cleanedValue !== undefined) {
+        stripped[key] = cleanedValue;
+      }
     }
   }
+
   return stripped;
 };
 
 /**
- * حساب المسافة الفعلية للطرق باستخدام Google Maps Distance Matrix
+ * جلب قائمة إحداثيات المسار الفعلي (Road Geometry) بين نقطتين عبر OSRM
  */
-export const getRoadDistance = (lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distance: number, duration: number }> => {
-  return new Promise((resolve) => {
-    /* Fix: Accessed google through window as any to avoid property existence error */
-    if (!(window as any).google) {
-      const straight = calculateDistance(lat1, lon1, lat2, lon2);
-      resolve({ distance: parseFloat((straight * 1.3).toFixed(1)), duration: Math.ceil(straight * 3) });
-      return;
+export const getRouteGeometry = async (lat1: number, lon1: number, lat2: number, lon2: number): Promise<[number, number][]> => {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.code === 'Ok' && data.routes?.length > 0) {
+      return data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
     }
-
-    /* Fix: Used global google variable for maps service */
-    const service = new google.maps.DistanceMatrixService();
-    service.getDistanceMatrix({
-      origins: [{ lat: lat1, lng: lon1 }],
-      destinations: [{ lat: lat2, lng: lon2 }],
-      travelMode: google.maps.TravelMode.DRIVING,
-    }, (response, status) => {
-      if (status === 'OK' && response && response.rows[0].elements[0].status === 'OK') {
-        const element = response.rows[0].elements[0];
-        resolve({
-          distance: parseFloat((element.distance.value / 1000).toFixed(1)),
-          duration: Math.ceil(element.duration.value / 60)
-        });
-      } else {
-        const straight = calculateDistance(lat1, lon1, lat2, lon2);
-        resolve({ distance: parseFloat((straight * 1.3).toFixed(1)), duration: Math.ceil(straight * 3) });
-      }
-    });
-  });
+    return [[lat1, lon1], [lat2, lon2]];
+  } catch (error) {
+    console.error("Routing Error:", error);
+    return [[lat1, lon1], [lat2, lon2]];
+  }
 };
 
 /**
- * جلب قائمة إحداثيات المسار الفعلي باستخدام Google Maps Directions
+ * حساب المسافة الفعلية والزمن التقديري للطرق
  */
-/* Fix: Changed return type to any[] to resolve missing google namespace */
-export const getRouteGeometry = (lat1: number, lon1: number, lat2: number, lon2: number): Promise<any[]> => {
-  return new Promise((resolve) => {
-    /* Fix: Accessed google through window as any */
-    if (!(window as any).google) {
-      resolve([{ lat: lat1, lng: lon1 }, { lat: lat2, lng: lon2 }]);
-      return;
+export const getRoadDistance = async (lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distance: number, duration: number }> => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return { distance: 0, duration: 0 };
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.code === 'Ok' && data.routes?.length > 0) {
+      return {
+        distance: parseFloat((data.routes[0].distance / 1000).toFixed(1)),
+        duration: Math.ceil(data.routes[0].duration / 60)
+      };
     }
-
-    /* Fix: Used global google variable for directions service */
-    const directionsService = new google.maps.DirectionsService();
-    directionsService.route({
-      origin: { lat: lat1, lng: lon1 },
-      destination: { lat: lat2, lng: lon2 },
-      travelMode: google.maps.TravelMode.DRIVING,
-    }, (result, status) => {
-      if (status === 'OK' && result && result.routes[0]) {
-        resolve(result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() })));
-      } else {
-        resolve([{ lat: lat1, lng: lon1 }, { lat: lat2, lng: lon2 }]);
-      }
-    });
-  });
+    throw new Error('OSRM Fallback');
+  } catch (error) {
+    const straight = calculateDistance(lat1, lon1, lat2, lon2);
+    return { distance: parseFloat((straight * 1.3).toFixed(1)), duration: Math.ceil(straight * 3) };
+  }
 };
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -102,6 +116,9 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
   return parseFloat((R * c).toFixed(1));
 };
 
+/**
+ * ضغط الصور لتقليل استهلاك الذاكرة وحجم المستندات في Firestore
+ */
 export const compressImage = (base64Str: string, maxWidth = 800, maxHeight = 800): Promise<string> => {
   return new Promise((resolve) => {
     if (!base64Str || !base64Str.startsWith('data:image')) { resolve(base64Str); return; }
