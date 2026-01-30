@@ -11,17 +11,16 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet';
 
 // Utils
-import { stripFirestore, compressImage, getRoadDistance, getRouteGeometry } from '../utils';
+import { stripFirestore, compressImage, getRoadDistance, getRouteGeometry, calculateDistance } from '../utils';
 
 // Services
 import { db } from '../services/firebase';
 import { 
   collection, addDoc, query, where, onSnapshot, 
-  doc, updateDoc, increment, orderBy
+  doc, updateDoc, increment, orderBy, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // Icons
-// Added missing Send import below
 import { 
   MapPin, Bike, Check, 
   ChevronDown, ChevronRight, Star,
@@ -34,7 +33,7 @@ import {
   Utensils, Store, Trash2, ZoomIn, Download, ChevronLeft,
   Timer, Milestone, AlertTriangle, Home, Megaphone, UploadCloud,
   Crosshair, Compass, Calculator, Radar, ClipboardList, Edit, PlusCircle,
-  Stethoscope, Image as ImageIcon, Info, Sparkles, Send
+  Stethoscope, Image as ImageIcon, Info, Sparkles, Send, Quote
 } from 'lucide-react';
 
 // Components
@@ -45,9 +44,16 @@ import ChatView from '../components/ChatView';
 import AIAssistant from '../config/AIAssistant';
 
 // --- Custom Icons ---
-const driverIcon = L.divIcon({
-  html: `<div class="bg-white p-2 rounded-full shadow-2xl border-4 border-emerald-500 animate-bounce text-xl flex items-center justify-center">🛵</div>`,
+const driverMarkerIcon = (type: string) => L.divIcon({
+  html: `<div class="bg-white p-2 rounded-full shadow-2xl border-4 border-emerald-500 animate-pulse text-xl flex items-center justify-center">${type === 'CAR' ? '🚗' : '🛵'}</div>`,
   className: 'live-driver-icon',
+  iconSize: [45, 45],
+  iconAnchor: [22, 22]
+});
+
+const userMarkerIcon = L.divIcon({
+  html: `<div class="bg-white p-2 rounded-full shadow-lg border-4 border-blue-500 text-lg flex items-center justify-center">👤</div>`,
+  className: 'user-live-icon',
   iconSize: [40, 40],
   iconAnchor: [20, 20]
 });
@@ -56,8 +62,72 @@ const MapAutoFit: React.FC<{ points: [number, number][] }> = ({ points }) => {
   const map = useMap();
   useEffect(() => {
     if (points.length > 1) { map.fitBounds(L.latLngBounds(points), { padding: [50, 50] }); }
-  }, [points]);
+  }, [points, map]);
   return null;
+};
+
+// --- Driver Reviews Modal ---
+const DriverReviewsModal: React.FC<{ driverId: string, driverName: string, onClose: () => void }> = ({ driverId, driverName, onClose }) => {
+  const [reviews, setReviews] = useState<{rating: number, feedback: string, ratedAt: number}[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "orders"), 
+      where("driverId", "==", driverId),
+      where("status", "==", OrderStatus.DELIVERED_RATED),
+      orderBy("ratedAt", "desc"),
+      limit(10)
+    );
+    getDocs(q).then(snap => {
+      const data = snap.docs.map(d => ({
+        rating: d.data().rating,
+        feedback: d.data().feedback,
+        ratedAt: d.data().ratedAt
+      }));
+      setReviews(data);
+      setLoading(false);
+    });
+  }, [driverId]);
+
+  return (
+    <div className="fixed inset-0 z-[12000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in" dir="rtl">
+       <div className="bg-white w-full max-w-md rounded-[3.5rem] shadow-2xl overflow-hidden animate-in zoom-in">
+          <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+             <div className="text-right">
+                <h3 className="text-xl font-black text-slate-900">سجل تقييمات الكابتن</h3>
+                <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{driverName}</p>
+             </div>
+             <button onClick={onClose} className="p-3 bg-slate-100 rounded-2xl text-slate-400 hover:text-rose-500 transition-all"><X /></button>
+          </div>
+          <div className="p-6 max-h-[60vh] overflow-y-auto no-scrollbar space-y-4">
+             {loading ? (
+               <div className="py-10 text-center"><Loader2 className="animate-spin h-8 w-8 mx-auto text-emerald-500" /></div>
+             ) : reviews.length === 0 ? (
+               <div className="py-10 text-center text-slate-400 font-bold">لا توجد تعليقات نصية سابقة</div>
+             ) : reviews.map((rev, i) => (
+               <div key={i} className="bg-slate-50 p-5 rounded-[2rem] space-y-2 border border-slate-100">
+                  <div className="flex justify-between items-center">
+                     <div className="flex gap-0.5">
+                        {[...Array(5)].map((_, idx) => (
+                          <Star key={idx} className={`h-3 w-3 ${idx < rev.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                        ))}
+                     </div>
+                     <span className="text-[8px] font-black text-slate-300 uppercase">{new Date(rev.ratedAt).toLocaleDateString('ar-EG')}</span>
+                  </div>
+                  <p className="text-xs font-bold text-slate-700 leading-relaxed text-right flex items-start gap-2 flex-row-reverse">
+                    <Quote className="h-4 w-4 text-emerald-300 shrink-0" />
+                    {rev.feedback || "تقييم ممتاز بدون تعليق"}
+                  </p>
+               </div>
+             ))}
+          </div>
+          <div className="p-6 bg-slate-50 border-t border-slate-100">
+             <button onClick={onClose} className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm active:scale-95 transition-all">إغلاق</button>
+          </div>
+       </div>
+    </div>
+  );
 };
 
 // --- Sub Components ---
@@ -444,7 +514,7 @@ const ManualRestaurantView: React.FC<{
 // --- Main Dashboard Component ---
 
 const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
-  const [activeView, setActiveView] = useState<'NEW' | 'PROFILE' | 'ACTIVITY' | 'WALLET'>('NEW');
+  const [activeView, setActiveView] = useState<'NEW' | 'MAP_RADAR' | 'PROFILE' | 'ACTIVITY' | 'WALLET'>('NEW');
   const [selectedCategory, setSelectedCategory] = useState<OrderCategory>('TAXI');
   
   const [pickupDistrict, setPickupDistrict] = useState<District | null>(null);
@@ -481,9 +551,13 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
   const [feedback, setFeedback] = useState('');
   const [isRatingSubmitting, setIsRatingSubmitting] = useState(false);
 
-  // Tracking Data
+  // Tracking Data for active trips
   const [driverLoc, setDriverLoc] = useState<{lat: number, lng: number} | null>(null);
   const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
+
+  // Tracking Data for offering drivers
+  const [offeringDriversLocs, setOfferingDriversLocs] = useState<Record<string, {lat: number, lng: number, vehicle: string}>>({});
+  const [reviewingDriver, setReviewingDriver] = useState<{id: string, name: string} | null>(null);
 
   useEffect(() => {
     onSnapshot(query(collection(db, "restaurants"), orderBy("name", "asc")), (snap) => {
@@ -502,9 +576,26 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
   useEffect(() => {
     if (activeOrder?.id && activeOrder.status === OrderStatus.WAITING_FOR_OFFERS) {
-      return onSnapshot(query(collection(db, "offers"), where("orderId", "==", activeOrder.id)), (snap) => {
-        setIncomingOffers(snap.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) })) as Offer[]);
+      const unsubOffers = onSnapshot(query(collection(db, "offers"), where("orderId", "==", activeOrder.id)), (snap) => {
+        const offers = snap.docs.map(d => ({ id: d.id, ...stripFirestore(d.data()) })) as Offer[];
+        setIncomingOffers(offers);
+
+        // تتبع أماكن الكباتن الذين قدموا عروضاً فقط
+        const driverIds = offers.map(o => o.driverId);
+        if (driverIds.length > 0) {
+           const unsubDrivers = onSnapshot(query(collection(db, "users"), where("id", "in", driverIds)), (userSnap) => {
+             const newLocs: any = {};
+             userSnap.docs.forEach(ud => {
+               if (ud.data().location) {
+                 newLocs[ud.id] = { ...ud.data().location, vehicle: ud.data().vehicleType || 'MOTORCYCLE' };
+               }
+             });
+             setOfferingDriversLocs(newLocs);
+           });
+           return () => unsubDrivers();
+        }
       });
+      return () => unsubOffers();
     }
     
     // تتبع الكابتن المباشر والمسار الفعلي فور قبول الطلب
@@ -513,7 +604,6 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
           if (docSnap.exists() && docSnap.data().location) {
              const loc = docSnap.data().location;
              setDriverLoc(loc);
-             // جلب المسار الفعلي من مكان الكابتن إلى نقطة الاستلام/التوصيل
              const dest = activeOrder.status === OrderStatus.ACCEPTED ? activeOrder.pickup : activeOrder.dropoff;
              getRouteGeometry(loc.lat, loc.lng, dest.lat, dest.lng).then(setRouteGeometry);
           }
@@ -522,6 +612,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
     } else {
        setDriverLoc(null);
        setRouteGeometry([]);
+       setOfferingDriversLocs({});
     }
   }, [activeOrder?.id, activeOrder?.status, activeOrder?.driverId]);
 
@@ -560,6 +651,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         acceptedAt: Date.now(),
         price: offer.price 
       });
+      setActiveView('NEW');
     } catch (e) { alert('فشل قبول العرض'); }
   };
 
@@ -578,29 +670,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         pickupNotes: pickupNote, dropoffNotes: dropoffNote, ...extraData
       };
       await addDoc(collection(db, "orders"), stripFirestore(orderData));
-
-      // بناء رسالة واتساب تفصيلية وشاملة
-      const catLabel = selectedCategory === 'TAXI' ? '🚖 مشوار' : selectedCategory === 'FOOD' ? '🍔 طلب أكل' : '💊 صيدلية';
-      const vehicleLabel = orderData.requestedVehicleType === 'TOKTOK' ? 'توكتوك 🛺' : orderData.requestedVehicleType === 'MOTORCYCLE' ? 'موتوسيكل 🏍️' : 'سيارة 🚗';
-      
-      let foodSummary = "";
-      if (orderData.foodItems && orderData.foodItems.length > 0) {
-        foodSummary = "\n📋 *الأصناف المطلوبة:*\n" + orderData.foodItems.map((i: any) => `- ${i.name} (عدد: ${i.quantity})`).join('\n');
-      }
-
-      const whatsappMsg = `*📢 طلب جديد من تطبيق وصلها*\n\n` +
-        `👤 *العميل:* ${user.name}\n` +
-        `📱 *الهاتف:* ${user.phone}\n` +
-        `📂 *القسم:* ${catLabel}\n` +
-        `📍 *الانطلاق:* ${orderData.pickup?.villageName || 'غير محدد'}\n` +
-        `🏁 *التوصيل:* ${orderData.dropoff?.villageName || 'غير محدد'}\n` +
-        `🛵 *المركبة:* ${vehicleLabel}\n` +
-        `💰 *التكلفة:* ${orderData.price} ج.م\n` +
-        (orderData.specialRequest ? `📝 *ملاحظة:* ${orderData.specialRequest}\n` : '') +
-        foodSummary +
-        `\n\n_تم الإرسال من تطبيق وصلها المنوفية_`;
-
-      window.open(`https://wa.me/201065019364?text=${encodeURIComponent(whatsappMsg)}`, '_blank');
+      window.open(`https://wa.me/201065019364?text=${encodeURIComponent('لقد قمت بطلب مشوار جديد من التطبيق.')}`, '_blank');
     } catch (e) { alert('خطأ في إرسال الطلب'); } finally { setIsSubmitting(false); }
   };
 
@@ -638,6 +708,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
     <div className="rh-layout relative h-full w-full bg-slate-50 overflow-hidden">
       <AIAssistant isOpen={aiOpen} onClose={() => setAiOpen(false)} />
       {viewingAd && <AdDetailsView ad={viewingAd} onClose={() => setViewingAd(null)} />}
+      {reviewingDriver && <DriverReviewsModal driverId={reviewingDriver.id} driverName={reviewingDriver.name} onClose={() => setReviewingDriver(null)} />}
       
       {showManualRest && (
         <ManualRestaurantView 
@@ -647,7 +718,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                 restaurantName: data.name,
                 specialRequest: data.items,
                 deliveryVillage: data.village,
-                price: 35, // سعر مبدأي تقديري
+                price: 35,
                 pickup: { address: data.name, lat: 30.2931, lng: 30.9863, villageName: 'خارجي' }
               });
               setShowManualRest(false);
@@ -677,7 +748,45 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
         />
       )}
 
-      <div className="page-container no-scrollbar h-full overflow-y-auto">
+      {/* Map Radar View Mode */}
+      {activeView === 'MAP_RADAR' && (
+        <div className="map-page-container animate-in fade-in duration-500">
+           <div className="absolute top-10 left-6 right-6 z-[1010] flex justify-between items-center">
+              <button onClick={() => setActiveView('NEW')} className="p-4 bg-white rounded-3xl shadow-xl border border-slate-100 active:scale-90 transition-all"><ArrowRight className="h-6 w-6" /></button>
+              <div className="bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                 <Radar className="h-4 w-4 animate-pulse" /> رادار الكباتن المباشر
+              </div>
+           </div>
+           <MapContainer center={[30.55, 31.01]} zoom={14} zoomControl={false} className="w-full h-full">
+              <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+              
+              {/* موقع العميل */}
+              {pickupVillage && <Marker position={[pickupVillage.center.lat, pickupVillage.center.lng]} icon={userMarkerIcon} />}
+
+              {/* مواقع الكباتن الذين قدموا عروضاً */}
+              {Object.entries(offeringDriversLocs).map(([id, loc]: [string, any]) => (
+                <Marker key={id} position={[loc.lat, loc.lng]} icon={driverMarkerIcon(loc.vehicle)}>
+                   <Popup>
+                      <div className="text-right p-1">
+                        <p className="font-black text-xs">كابتن قدم عرضاً</p>
+                        <button onClick={() => {
+                          const offer = incomingOffers.find(o => o.driverId === id);
+                          if(offer) handleAcceptOffer(offer);
+                        }} className="mt-2 bg-emerald-600 text-white px-3 py-1 rounded-lg text-[8px] font-black">قبول العرض</button>
+                      </div>
+                   </Popup>
+                </Marker>
+              ))}
+
+              <MapAutoFit points={[
+                ...(pickupVillage ? [[pickupVillage.center.lat, pickupVillage.center.lng] as [number, number]] : []),
+                ...(Object.values(offeringDriversLocs) as any[]).map(l => [l.lat, l.lng] as [number, number])
+              ]} />
+           </MapContainer>
+        </div>
+      )}
+
+      <div className={`page-container no-scrollbar h-full overflow-y-auto ${activeView === 'MAP_RADAR' ? 'hidden' : 'block'}`}>
         <div className="p-6 md:p-10 space-y-8 pb-32 max-w-2xl mx-auto">
           {!activeOrder ? (
             <>
@@ -686,7 +795,10 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                     <h2 className="text-4xl font-black text-slate-900 tracking-tighter leading-none">وصـــلــهــا</h2>
                     <p className="text-slate-400 font-bold text-[10px] uppercase tracking-[0.3em] mt-2">توصيل ذكي حقيقي للمنوفية</p>
                  </div>
-                 <button onClick={() => setAiOpen(true)} className="p-4 bg-emerald-50 text-emerald-600 rounded-3xl active:scale-90 transition-all shadow-sm border border-emerald-100"><Bot /></button>
+                 <div className="flex gap-2">
+                    <button onClick={() => setActiveView('MAP_RADAR')} className="p-4 bg-white text-emerald-600 rounded-3xl shadow-sm border border-slate-100 active:scale-90 transition-all"><MapIcon /></button>
+                    <button onClick={() => setAiOpen(true)} className="p-4 bg-emerald-50 text-emerald-600 rounded-3xl active:scale-90 transition-all shadow-sm border border-emerald-100"><Bot /></button>
+                 </div>
               </div>
 
               <AdsSlider ads={ads} onAdClick={(ad) => setViewingAd(ad)} />
@@ -808,15 +920,28 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                     <div className="bg-white p-12 rounded-full card-shadow relative inline-block border-4 border-emerald-50 shadow-2xl shadow-emerald-900/10"><Radar className="h-20 w-20 text-emerald-600 animate-pulse" /></div>
                     <div className="space-y-2">
                        <h2 className="text-3xl font-black text-slate-900 tracking-tighter">جاري البحث عن كباتن متاحين...</h2>
-                       <p className="text-xs font-bold text-slate-400">ستظهر العروض في الأسفل خلال لحظات</p>
+                       <button onClick={() => setActiveView('MAP_RADAR')} className="text-emerald-600 font-black text-xs underline flex items-center gap-2 justify-center mt-2">
+                          <MapIcon className="h-4 w-4" /> رؤية أماكن الكباتن على الخريطة
+                       </button>
                     </div>
                     <div className="space-y-4">
                        {incomingOffers.map(offer => (
                          <div key={offer.id} className="bg-white p-6 rounded-[2.5rem] card-shadow flex justify-between items-center animate-in zoom-in border-2 border-emerald-50 hover:border-emerald-500 transition-all">
-                            <button onClick={() => handleAcceptOffer(offer)} className="bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all">قبول {offer.price} ج.م</button>
-                            <div className="text-right">
-                               <p className="font-black text-slate-900">{offer.driverName}</p>
-                               <div className="flex items-center gap-1 justify-end"><span className="text-[10px] font-black text-amber-500">{offer.driverRating || '5.0'}</span><Star className="h-3 w-3 fill-amber-400 text-amber-400" /></div>
+                            <div className="text-center space-y-2">
+                               <p className="text-3xl font-black text-emerald-700">{offer.price} ج.م</p>
+                               <button onClick={() => handleAcceptOffer(offer)} className="bg-emerald-600 text-white px-8 py-2 rounded-2xl font-black text-[10px] shadow-lg">قبول العرض</button>
+                            </div>
+                            <div className="flex items-center gap-5 flex-row-reverse text-right">
+                               <div className="w-14 h-14 bg-slate-900 text-emerald-400 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+                                 {offer.driverPhoto ? <img src={offer.driverPhoto} className="w-full h-full object-cover" /> : (offer.driverName || 'ك')[0]}
+                               </div>
+                               <div>
+                                  <p className="font-black text-slate-900 text-lg">{offer.driverName}</p>
+                                  <button onClick={() => setReviewingDriver({id: offer.driverId, name: offer.driverName})} className="flex items-center gap-2 text-amber-500 font-black text-xs bg-amber-50 px-3 py-1 rounded-full mt-1 border border-amber-100 hover:bg-amber-100 transition-all">
+                                     <span className="underline">{offer.driverRating || '5.0'}</span> <Star className="h-3 w-3 fill-amber-400" />
+                                     <span className="text-[7px] text-slate-400 mr-1">(آراء العملاء)</span>
+                                  </button>
+                               </div>
                             </div>
                          </div>
                        ))}
@@ -831,7 +956,7 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                     <div className="bg-slate-50 p-8 rounded-[3rem] space-y-10">
                        <div className="flex justify-center gap-3">
                           {[1,2,3,4,5].map(s => (
-                             <button key={s} onClick={() => setRating(s)} className="transition-all active:scale-75">
+                             <button key={s} onClick={() => setRating(s)} className="transition-all active:scale-75 border-none bg-transparent outline-none">
                                 <Star className={`h-12 w-12 ${rating >= s ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                              </button>
                           ))}
@@ -844,27 +969,17 @@ const CustomerDashboard: React.FC<{ user: User }> = ({ user }) => {
                  </div>
                ) : (
                  <div className="space-y-8 animate-reveal">
-                    {/* خريطة تتبع الكابتن المباشرة والمسار الفعلي */}
                     {driverLoc && (
                       <div className="h-64 md:h-80 rounded-[3.5rem] overflow-hidden border-4 border-white shadow-2xl relative animate-in zoom-in duration-500">
                         <MapContainer center={[driverLoc.lat, driverLoc.lng]} zoom={15} zoomControl={false} className="h-full w-full">
                           <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                          
-                          {/* الكابتن */}
-                          <Marker position={[driverLoc.lat, driverLoc.lng]} icon={driverIcon}>
+                          <Marker position={[driverLoc.lat, driverLoc.lng]} icon={driverMarkerIcon('MOTORCYCLE')}>
                              <Popup><p className="font-black text-xs text-right">مكان الكابتن الآن</p></Popup>
                           </Marker>
-
-                          {/* الوجهة (نقطة استلام العميل أو الوجهة) */}
-                          <Marker position={[activeOrder.pickup.lat, activeOrder.pickup.lng]}>
+                          <Marker position={[activeOrder.pickup.lat, activeOrder.pickup.lng]} icon={userMarkerIcon}>
                              <Popup><p className="font-black text-xs text-right">نقطة الالتقاء</p></Popup>
                           </Marker>
-
-                          {/* رسم المسار الفعلي (OSRM Routing) */}
-                          {routeGeometry.length > 0 && (
-                            <Polyline positions={routeGeometry} color="#10b981" weight={6} opacity={0.6} />
-                          )}
-
+                          {routeGeometry.length > 0 && <Polyline positions={routeGeometry} color="#10b981" weight={6} opacity={0.6} />}
                           <MapAutoFit points={[[driverLoc.lat, driverLoc.lng], [activeOrder.pickup.lat, activeOrder.pickup.lng]]} />
                         </MapContainer>
                         <div className="absolute top-5 right-5 z-[1000] bg-white/90 backdrop-blur-md px-5 py-2.5 rounded-2xl text-[9px] font-black shadow-xl border border-slate-100 flex items-center gap-2">
