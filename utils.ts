@@ -1,40 +1,22 @@
 
-/**
- * مفتاح API الخاص بـ OpenRouteService
- */
-const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImIxZGM0YjQyMDEzNjRjYmRiY2E0YWY2ZTg5ZjBlMzU3IiwiaCI6Im11cm11cjY0In0=';
+/* Fix: Define google variable to resolve type errors for external script */
+declare var google: any;
 
 /**
  * وظيفة متقدمة لتطهير البيانات من أي مراجع دائرية أو كائنات معقدة غير قابلة للتسلسل.
- * تمنع خطأ "Converting circular structure to JSON"
  */
 export const stripFirestore = (data: any, seen = new WeakSet()): any => {
   if (data === null || data === undefined) return data;
-  
   const type = typeof data;
   if (type !== 'object') return data;
-
   if (seen.has(data)) return undefined;
-
   if (typeof data.toMillis === 'function') return data.toMillis();
   if (typeof data.toDate === 'function') return data.toDate().getTime();
-
-  if (data.path && typeof data.path === 'string' && (data.firestore || data._delegate)) {
-    return data.path;
-  }
-
-  if (typeof Node !== 'undefined' && data instanceof Node) {
-    return undefined;
-  }
-
+  if (data.path && typeof data.path === 'string' && (data.firestore || data._delegate)) return data.path;
   seen.add(data);
-
   if (Array.isArray(data)) {
-    return data
-      .map((item) => stripFirestore(item, seen))
-      .filter((val) => val !== undefined);
+    return data.map((item) => stripFirestore(item, seen)).filter((val) => val !== undefined);
   }
-
   const stripped: any = {};
   for (const key in data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) {
@@ -42,83 +24,71 @@ export const stripFirestore = (data: any, seen = new WeakSet()): any => {
       const value = data[key];
       if (typeof value === 'function') continue;
       const cleanedValue = stripFirestore(value, seen);
-      if (cleanedValue !== undefined) {
-        stripped[key] = cleanedValue;
-      }
+      if (cleanedValue !== undefined) stripped[key] = cleanedValue;
     }
   }
   return stripped;
 };
 
 /**
- * دالة مساعدة لجلب البيانات من ORS مع معالجة الأخطاء والمهلة الزمنية
+ * حساب المسافة الفعلية للطرق باستخدام Google Maps Distance Matrix
  */
-const fetchORS = async (endpoint: string, params: string) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000); // مهلة 5 ثواني
+export const getRoadDistance = (lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distance: number, duration: number }> => {
+  return new Promise((resolve) => {
+    /* Fix: Accessed google through window as any to avoid property existence error */
+    if (!(window as any).google) {
+      const straight = calculateDistance(lat1, lon1, lat2, lon2);
+      resolve({ distance: parseFloat((straight * 1.3).toFixed(1)), duration: Math.ceil(straight * 3) });
+      return;
+    }
 
-  try {
-    const url = `https://api.openrouteservice.org/v2/directions/driving-car${endpoint}?${params}`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8',
-        'Authorization': ORS_API_KEY
-      },
-      signal: controller.signal
+    /* Fix: Used global google variable for maps service */
+    const service = new google.maps.DistanceMatrixService();
+    service.getDistanceMatrix({
+      origins: [{ lat: lat1, lng: lon1 }],
+      destinations: [{ lat: lat2, lng: lon2 }],
+      travelMode: google.maps.TravelMode.DRIVING,
+    }, (response, status) => {
+      if (status === 'OK' && response && response.rows[0].elements[0].status === 'OK') {
+        const element = response.rows[0].elements[0];
+        resolve({
+          distance: parseFloat((element.distance.value / 1000).toFixed(1)),
+          duration: Math.ceil(element.duration.value / 60)
+        });
+      } else {
+        const straight = calculateDistance(lat1, lon1, lat2, lon2);
+        resolve({ distance: parseFloat((straight * 1.3).toFixed(1)), duration: Math.ceil(straight * 3) });
+      }
     });
-    clearTimeout(timeoutId);
-    if (!response.ok) throw new Error('ORS_ERROR');
-    return await response.json();
-  } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
-  }
+  });
 };
 
 /**
- * جلب قائمة إحداثيات المسار الفعلي (Road Geometry)
+ * جلب قائمة إحداثيات المسار الفعلي باستخدام Google Maps Directions
  */
-export const getRouteGeometry = async (lat1: number, lon1: number, lat2: number, lon2: number): Promise<[number, number][]> => {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return [[lat1, lon1], [lat2, lon2]];
-  
-  try {
-    const data = await fetchORS('', `start=${lon1},${lat1}&end=${lon2},${lat2}`);
-    if (data.features && data.features.length > 0) {
-      return data.features[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
+/* Fix: Changed return type to any[] to resolve missing google namespace */
+export const getRouteGeometry = (lat1: number, lon1: number, lat2: number, lon2: number): Promise<any[]> => {
+  return new Promise((resolve) => {
+    /* Fix: Accessed google through window as any */
+    if (!(window as any).google) {
+      resolve([{ lat: lat1, lng: lon1 }, { lat: lat2, lng: lon2 }]);
+      return;
     }
-    return [[lat1, lon1], [lat2, lon2]];
-  } catch (error) {
-    // في حال فشل الـ API (مثل Failed to fetch)، نعود لرسم خط مستقيم صامت
-    return [[lat1, lon1], [lat2, lon2]];
-  }
-};
 
-/**
- * حساب المسافة الفعلية للطرق بدلاً من الخط المستقيم
- */
-export const getRoadDistance = async (lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distance: number, duration: number }> => {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return { distance: 0, duration: 0 };
-  
-  try {
-    const data = await fetchORS('', `start=${lon1},${lat1}&end=${lon2},${lat2}`);
-    if (data.features && data.features.length > 0) {
-      const summary = data.features[0].properties.summary;
-      return {
-        distance: parseFloat((summary.distance / 1000).toFixed(1)),
-        duration: Math.ceil(summary.duration / 60)
-      };
-    }
-    throw new Error('FALLBACK');
-  } catch (error) {
-    // نظام احتياطي ذكي: المسافة المستقيمة + 30% لتعويض تعرجات الطرق
-    const straight = calculateDistance(lat1, lon1, lat2, lon2);
-    const estimatedRoadDist = straight === 0 ? 0 : parseFloat((straight * 1.3).toFixed(1));
-    return { 
-      distance: estimatedRoadDist, 
-      duration: Math.ceil(straight * 3) // تقدير الوقت: 3 دقائق لكل كيلو
-    };
-  }
+    /* Fix: Used global google variable for directions service */
+    const directionsService = new google.maps.DirectionsService();
+    directionsService.route({
+      origin: { lat: lat1, lng: lon1 },
+      destination: { lat: lat2, lng: lon2 },
+      travelMode: google.maps.TravelMode.DRIVING,
+    }, (result, status) => {
+      if (status === 'OK' && result && result.routes[0]) {
+        resolve(result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() })));
+      } else {
+        resolve([{ lat: lat1, lng: lon1 }, { lat: lat2, lng: lon2 }]);
+      }
+    });
+  });
 };
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
